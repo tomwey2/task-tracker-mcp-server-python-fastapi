@@ -15,15 +15,17 @@ from pydantic import BaseModel, Field
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8080/api")
 TASKAPP_USER = os.getenv("TASKAPP_USER", "max.power")
 TASKAPP_PASSWORD = os.getenv("TASKAPP_PASSWORD", "password456")
+AGENT_USER_ID: Optional[int] = None
 
 
 # --- 2. Authentifizierungs-Logik ---
 def create_authenticated_client() -> httpx.Client:
     """
     Diese Funktion wird EINMAL beim Start des Servers aufgerufen.
-    Sie meldet sich beim Backend an und erstellt einen Client,
-    der den Token automatisch für alle Anfragen verwendet.
+    Sie meldet sich beim Backend an, erstellt einen Client, der den Token
+    automatisch für alle Anfragen verwendet, und ruft die ID des Agenten ab.
     """
+    global AGENT_USER_ID
     print(
         f"Versuche Login beim Backend ({BACKEND_URL}) als Benutzer '{TASKAPP_USER}'...",
         file=sys.stderr,
@@ -49,9 +51,18 @@ def create_authenticated_client() -> httpx.Client:
 
             # --- Permanenten, authentifizierten Client erstellen ---
             headers = {"Authorization": f"Bearer {token}"}
+            client = httpx.Client(base_url=BACKEND_URL, headers=headers)
 
-            # Dieser Client wird für alle Tool-Aufrufe wiederverwendet
-            return httpx.Client(base_url=BACKEND_URL, headers=headers)
+            # --- Eigene User-ID abrufen ---
+            print("Rufe eigene User-ID von /api/auth/me ab...", file=sys.stderr)
+            me_response = client.get("/auth/me")
+            me_response.raise_for_status()
+            AGENT_USER_ID = me_response.json().get("id")
+            if not AGENT_USER_ID:
+                raise ValueError("Can not find 'id' in the /api/auth/me response.")
+            print(f"Eigene User-ID ist: {AGENT_USER_ID}", file=sys.stderr)
+
+            return client
 
     except httpx.HTTPStatusError as e:
         print(
@@ -89,6 +100,7 @@ class GetTasksParams(BaseModel):
 def get_tasks(params: GetTasksParams) -> Dict[str, Any]:
     """
     Ruft Aufgaben für ein bestimmtes Projekt ab.
+    Wenn keine assigned_user_id angegeben wird, werden die Aufgaben des aktuellen Benutzers (Agent) abgerufen.
     Die Authentifizierung erfolgt automatisch.
     """
     print("Tool called: get_tasks", file=sys.stderr)
@@ -96,10 +108,19 @@ def get_tasks(params: GetTasksParams) -> Dict[str, Any]:
         query_params = {}
         if params.project_id is not None:
             query_params["projectId"] = params.project_id
-        if params.assigned_user_id is not None:
-            query_params["assignedToUserId"] = params.assigned_user_id
 
-        # ANNAHME: Ihr Backend ist GET /api/v1/projects/{id}/tasks
+        user_id_to_query = params.assigned_user_id
+        if user_id_to_query is None:
+            user_id_to_query = AGENT_USER_ID
+            print(
+                f"Keine assigned_user_id angegeben, verwende eigene ID: {AGENT_USER_ID}",
+                file=sys.stderr,
+            )
+
+        if user_id_to_query is not None:
+            query_params["assignedToUserId"] = user_id_to_query
+
+        # Abfrage der Tasks erfolgt z.B. mit: GET /api/tasks?projectId=1&assignedToUser=3
         # Der 'client' hat bereits den Bearer-Token im Header.
         response = client.get("/tasks", params=query_params)
         response.raise_for_status()
