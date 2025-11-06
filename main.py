@@ -3,32 +3,21 @@ MCP-Server für das taskapp-backend (mit Authentifizierung).
 Verwendet das mcp-python-sdk (STDIO).
 """
 
-import httpx
 import os
 import sys
+from typing import Any, Dict, Optional
+
+import httpx
 from mcp.server.fastmcp import FastMCP
 from pydantic import BaseModel, Field
-from typing import Optional, List, Dict, Any
 
 # --- 1. Konfiguration ---
-# Umgebungsvariablen für die Anmeldedaten abrufen
-# Die Basis-URL Ihres Backends
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8080/api")
-# Wir verwenden die vom Benutzer vorgeschlagenen Standardwerte,
-# falls die ENV-Variablen nicht gesetzt sind.
 TASKAPP_USER = os.getenv("TASKAPP_USER", "max.power")
 TASKAPP_PASSWORD = os.getenv("TASKAPP_PASSWORD", "password456")
 
-if TASKAPP_USER == "max.power":
-    print(
-        "Info: Verwende Standard-Benutzer 'max.power'. Setze TASKAPP_USER für einen anderen Benutzer.",
-        file=sys.stderr,
-    )
-
 
 # --- 2. Authentifizierungs-Logik ---
-
-
 def create_authenticated_client() -> httpx.Client:
     """
     Diese Funktion wird EINMAL beim Start des Servers aufgerufen.
@@ -54,11 +43,9 @@ def create_authenticated_client() -> httpx.Client:
             # Token aus der Antwort extrahieren (Annahme: Standard-OAuth2-Antwort)
             token = response.json().get("token")
             if not token:
-                raise ValueError(
-                    "Konnte 'access_token' nicht in der Login-Antwort finden."
-                )
+                raise ValueError("Can not find 'access_token' in the login response.")
 
-            print("Login erfolgreich. Bearer-Token erhalten.", file=sys.stderr)
+            print("Login successful. Got Bearer token.", file=sys.stderr)
 
             # --- Permanenten, authentifizierten Client erstellen ---
             headers = {"Authorization": f"Bearer {token}"}
@@ -68,59 +55,53 @@ def create_authenticated_client() -> httpx.Client:
 
     except httpx.HTTPStatusError as e:
         print(
-            f"FEHLER: Login fehlgeschlagen! Status: {e.response.status_code}, Antwort: {e.response.text}",
+            f"ERROR: Login failed! Status: {e.response.status_code}, Response: {e.response.text}",
             file=sys.stderr,
         )
         raise  # Beendet das Skript
     except httpx.ConnectError as e:
-        print(f"FEHLER: Backend unter {BACKEND_URL} nicht erreichbar.", file=sys.stderr)
+        print(f"ERROR: Backend {BACKEND_URL} unreachable.", file=sys.stderr)
         raise
     except Exception as e:
-        print(f"FEHLER beim Login: {e}", file=sys.stderr)
+        print(f"ERROR: Login failed: {e}", file=sys.stderr)
         raise
 
 
 # --- 3. MCP Server Initialisierung ---
-
-mcp = FastMCP("TaskApp Backend Adapter")
-
+mcp = FastMCP("TaskApp Backend MCP Server")
 # Der Client wird hier, beim Laden des Skripts, erstellt und authentifiziert.
 # Wenn dies fehlschlägt, startet der MCP-Server gar nicht erst.
 client = create_authenticated_client()
 
 
 # --- 4. Pydantic-Modell für Parameter ---
-
-
 class GetTasksParams(BaseModel):
-    project_id: int
-    user_id: Optional[int] = Field(
-        None, description="Optional: Nach Benutzer-ID filtern."
+    project_id: Optional[int] = Field(
+        None, description="Optional: ID of the project to filter by."
+    )
+    assigned_user_id: Optional[int] = Field(
+        None, description="Optional: ID of the user to whom the tasks are assigned."
     )
 
 
 # --- 5. Tool-Definition ---
-
-
 @mcp.tool()
 def get_tasks(params: GetTasksParams) -> Dict[str, Any]:
     """
     Ruft Aufgaben für ein bestimmtes Projekt ab.
     Die Authentifizierung erfolgt automatisch.
     """
-    print(
-        f"Tool 'get_tasks' aufgerufen für Projekt {params.project_id}", file=sys.stderr
-    )
+    print("Tool called: get_tasks", file=sys.stderr)
     try:
         query_params = {}
-        if params.user_id:
-            query_params["user_id"] = params.user_id
+        if params.project_id is not None:
+            query_params["projectId"] = params.project_id
+        if params.assigned_user_id is not None:
+            query_params["assignedToUserId"] = params.assigned_user_id
 
         # ANNAHME: Ihr Backend ist GET /api/v1/projects/{id}/tasks
         # Der 'client' hat bereits den Bearer-Token im Header.
-        response = client.get(
-            f"/projects/{params.project_id}/tasks", params=query_params
-        )
+        response = client.get("/tasks", params=query_params)
         response.raise_for_status()
         return response.json()
 
