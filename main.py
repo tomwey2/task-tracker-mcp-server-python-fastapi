@@ -8,13 +8,16 @@ import sys
 from typing import Any, Dict, Optional
 
 import httpx
+from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
 from pydantic import BaseModel, Field
 
+load_dotenv()
+
 # --- 1. Konfiguration ---
-BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8080/api")
-TASKAPP_USER = os.getenv("TASKAPP_USER", "max.power")
-TASKAPP_PASSWORD = os.getenv("TASKAPP_PASSWORD", "password456")
+BACKEND_URL = os.getenv("BACKEND_URL")
+TASKAPP_USER = os.getenv("TASKAPP_USER")
+TASKAPP_PASSWORD = os.getenv("TASKAPP_PASSWORD")
 AGENT_USER_ID: Optional[int] = None
 
 
