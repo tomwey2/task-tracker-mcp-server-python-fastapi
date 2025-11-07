@@ -15,20 +15,20 @@ from pydantic import BaseModel, Field
 load_dotenv()
 
 # --- 1. Konfiguration ---
-BACKEND_URL = os.getenv("BACKEND_URL")
-TASKAPP_USER = os.getenv("TASKAPP_USER")
-TASKAPP_PASSWORD = os.getenv("TASKAPP_PASSWORD")
-AGENT_USER_ID: Optional[int] = None
+BACKEND_URL = os.getenv("BACKEND_URL", "")
+TASKAPP_USER = os.getenv("TASKAPP_USER", "")
+TASKAPP_PASSWORD = os.getenv("TASKAPP_PASSWORD", "")
+AGENT_USER_ID: int = 0
 
 
 # --- Validierung der Konfiguration ---
-if BACKEND_URL is None:
+if not BACKEND_URL:
     print("ERROR: Environment variable BACKEND_URL is not set.", file=sys.stderr)
     sys.exit(1)
-if TASKAPP_USER is None:
+if not TASKAPP_USER:
     print("ERROR: Environment variable TASKAPP_USER is not set.", file=sys.stderr)
     sys.exit(1)
-if TASKAPP_PASSWORD is None:
+if not TASKAPP_PASSWORD:
     print("ERROR: Environment variable TASKAPP_PASSWORD is not set.", file=sys.stderr)
     sys.exit(1)
 
@@ -72,9 +72,10 @@ def create_authenticated_client() -> httpx.Client:
             print("Rufe eigene User-ID von /api/auth/me ab...", file=sys.stderr)
             me_response = client.get("/auth/me")
             me_response.raise_for_status()
-            AGENT_USER_ID = me_response.json().get("id")
-            if not AGENT_USER_ID:
+            user_id = me_response.json().get("id")
+            if not user_id:
                 raise ValueError("Can not find 'id' in the /api/auth/me response.")
+            AGENT_USER_ID = user_id
             print(f"Eigene User-ID ist: {AGENT_USER_ID}", file=sys.stderr)
 
             return client
